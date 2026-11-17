@@ -1,10 +1,10 @@
 {
-  "mode": "report",
+  "mode": "block",
   "guards": {
-    "secret-scan": "report",
+    "secret-scan": "block",
     "pinned-actions": "report",
     "workflow-permissions": "report",
     "dead-links": "report",
-    "done-without-green": "report"
+    "done-without-green": "block"
   }
 }
