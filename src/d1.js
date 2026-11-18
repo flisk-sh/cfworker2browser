@@ -4,6 +4,39 @@
 // d1-sqljs.js makes an adapter from sql.js (SQLite as WebAssembly). Tests use bun:sqlite.
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+const sqlToken = /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:''|[^'])*'|"(?:""|[^"])*"|\x60(?:\x60\x60|[^\x60])*\x60|\[[^\]]*\]|[A-Za-z_][\w$]*|\S/g;
+const triggerPrefix = /^(?:EXPLAIN (?:QUERY PLAN )?)?CREATE (?:TEMP(?:ORARY)? )?TRIGGER$/;
+
+function countStatements(sql) {
+  let count = 0;
+  let hasStatement = false;
+  let inTrigger = false;
+  let afterTriggerSemicolon = false;
+  const openingTokens = [];
+  for (const [token] of sql.matchAll(sqlToken)) {
+    if (token.startsWith('--') || token.startsWith('/*')) continue;
+
+    if (inTrigger) {
+      // A trigger ends with END after its last inner statement, even if
+      // an expression in that statement also contains a CASE ... END.
+      if (afterTriggerSemicolon && token.toUpperCase() === 'END') inTrigger = false;
+      afterTriggerSemicolon = token === ';';
+    } else if (token === ';') {
+      if (hasStatement) count++;
+      hasStatement = false;
+      openingTokens.length = 0;
+    } else {
+      hasStatement = true;
+      if (openingTokens.length < 6) {
+        openingTokens.push(token.toUpperCase());
+        inTrigger = triggerPrefix.test(openingTokens.join(' '));
+        afterTriggerSemicolon = false;
+      }
+    }
+  }
+  return count + Number(hasStatement);
+}
+
 function checkParam(v) {
   if (v === undefined) throw new Error("D1_TYPE_ERROR: Type 'undefined' not supported for value 'undefined'");
   if (typeof v === 'boolean') return v ? 1 : 0;
@@ -112,7 +145,7 @@ export class D1Database {
     } catch (e) {
       throw wrap(e);
     }
-    return { count: sql.split(';').filter((s) => s.trim()).length, duration: clock() - t };
+    return { count: countStatements(sql), duration: clock() - t };
   }
 
   withSession() {
