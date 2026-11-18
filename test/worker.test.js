@@ -132,7 +132,7 @@ describe('R2', () => {
 const sqliteAdapter = (db) => ({
   exec(sql, params) {
     const s = db.query(sql);
-    const rows = s.values(...params);
+    const rows = s.values(...params) ?? [];
     const info = db.query('select changes() as c, last_insert_rowid() as r').get();
     return { columns: s.columnNames, rows, changes: rows.length ? 0 : info.c, lastRowId: info.r };
   },
@@ -163,6 +163,27 @@ describe('D1', () => {
     const d = await make();
     await expect(d.prepare('select * from nope').all()).rejects.toThrow('D1_ERROR');
     expect(() => d.prepare('select ?').bind(undefined)).toThrow('D1_TYPE_ERROR');
+  });
+  test('exec counts executed statements without counting quoted semicolons or comments', async () => {
+    const d = await make();
+    expect((await d.exec("insert into t (name) values ('a;b');")).count).toBe(1);
+    expect((await d.exec("insert into t (name) values ('c'';d'); \n;\n select * from t;")).count).toBe(2);
+    expect((await d.exec('-- comment; with semicolon\nselect 1 /* comment; with semicolon */;')).count).toBe(1);
+    expect((await d.prepare('select name from t order by id').all()).results).toEqual([
+      { name: 'a;b' },
+      { name: "c';d" },
+    ]);
+  });
+  test('exec counts a multi-step trigger as one statement', async () => {
+    const d = await make();
+    const result = await d.exec(`
+      create temporary trigger log_updates after update on t begin
+        insert into t (name) values (case when new.name = 'end' then 'updated' else new.name end);
+        insert into t (name) values ('finished;');
+      end;
+      select name as [with;semicolon] from t;
+    `);
+    expect(result.count).toBe(2);
   });
   test('batch is one transaction: a failing statement undoes the earlier ones', async () => {
     const d = await make();
