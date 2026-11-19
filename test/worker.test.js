@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readConfig, parseToml } from '../src/config.js';
-import { D1Database } from '../src/d1.js';
+import { countStatements, D1Database } from '../src/d1.js';
 import { createWorkerRuntime } from '../src/runtime.js';
 import { MemoryKV, MemoryR2 } from '../src/stores.js';
 import { startWorker } from '../src/index.js';
@@ -172,6 +172,32 @@ describe('D1', () => {
     expect((await d.prepare('select count(*) as n from t').first()).n).toBe(0);
     const out = await d.batch([d.prepare("insert into t (name) values ('x')"), d.prepare('select count(*) as n from t')]);
     expect(out[1].results[0].n).toBe(1);
+  });
+  test('exec counts a semicolon inside a string literal as one statement', async () => {
+    const d = await make();
+    const r = await d.exec("insert into t (name) values ('a;b');");
+    expect(r.count).toBe(1);
+    expect((await d.prepare('select name from t').first('name'))).toBe('a;b');
+  });
+  test('exec counts two statements despite trailing semicolon and blank lines', async () => {
+    const d = await make();
+    const r = await d.exec("\ninsert into t (name) values ('ann');\n\ninsert into t (name) values ('bob');\n");
+    expect(r.count).toBe(2);
+  });
+  test('exec ignores semicolons in line and block comments', async () => {
+    const d = await make();
+    const r = await d.exec("-- one; two\ninsert into t (name) values ('ann'); /* three; four */ insert into t (name) values ('bob');");
+    expect(r.count).toBe(2);
+  });
+  test('exec keeps the plain script count', async () => {
+    const d = await make();
+    const r = await d.exec("insert into t (name) values ('ann');insert into t (name) values ('bob');");
+    expect(r.count).toBe(2);
+  });
+  test('statement counter handles doubled quotes and double-quoted identifiers', () => {
+    expect(countStatements("insert into t values ('it''s; fine'); select 1;")).toBe(2);
+    expect(countStatements('select "odd;name" from t;')).toBe(1);
+    expect(countStatements('   -- just a comment; \n /* and another; */ ')).toBe(0);
   });
 });
 

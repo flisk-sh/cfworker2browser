@@ -17,6 +17,44 @@ const wrap = (e) => {
   return err;
 };
 
+// Count real statement separators, not semicolons inside quotes or comments. SQL quotes a quote by doubling it.
+export function countStatements(sql) {
+  let count = 0;
+  let pending = false;
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    const next = sql[i + 1];
+    if (lineComment) {
+      if (c === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (c === '*' && next === '/') { blockComment = false; i++; }
+      continue;
+    }
+    if (quote) {
+      if (c === quote) {
+        if (next === quote) { i++; continue; }
+        quote = null;
+      }
+      continue;
+    }
+    if (c === '-' && next === '-') { lineComment = true; i++; continue; }
+    if (c === '/' && next === '*') { blockComment = true; i++; continue; }
+    if (c === "'" || c === '"' || c === '`') { quote = c; pending = true; continue; }
+    if (c === ';') {
+      if (pending) count++;
+      pending = false;
+      continue;
+    }
+    if (!/\s/.test(c)) pending = true;
+  }
+  return count + (pending ? 1 : 0);
+}
+
 export class D1PreparedStatement {
   constructor(adapter, sql, params) {
     this.a = adapter;
@@ -112,7 +150,7 @@ export class D1Database {
     } catch (e) {
       throw wrap(e);
     }
-    return { count: sql.split(';').filter((s) => s.trim()).length, duration: clock() - t };
+    return { count: countStatements(sql), duration: clock() - t };
   }
 
   withSession() {
