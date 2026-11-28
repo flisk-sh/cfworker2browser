@@ -57,6 +57,12 @@ describe('config', () => {
     expect(c.vars.A).toBe('1');
     expect(c.kv_namespaces[0].binding).toBe('K');
   });
+  test('preserves comma and bracket sequences inside JSONC strings', () => {
+    const c = readConfig(String.raw`{
+      "vars": {"GREETING": "quoted \"text\",}", "LABELS": ["literal, ]", /* trailing */],},
+    }`);
+    expect(c.vars).toEqual({ GREETING: 'quoted "text",}', LABELS: ['literal, ]'] });
+  });
   test('a "#" inside a string is not a comment, and bad input throws', () => {
     expect(parseToml('a = "x # y"').a).toBe('x # y');
     expect(() => parseToml('a = "open')).toThrow();

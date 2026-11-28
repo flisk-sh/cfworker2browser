@@ -148,7 +148,8 @@ function parseJsonc(text) {
       i++;
     } else out += c;
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
+  // Match quoted strings as a unit so they cannot be mistaken for trailing commas.
+  return JSON.parse(out.replace(/"(?:\\[\s\S]|[^"\\])*"|,(\s*[}\]])/g, (match, close) => close ?? match));
 }
 
 // Returns the same shape for TOML and JSON: { name, main, compatibility_date, vars, kv_namespaces, r2_buckets,
